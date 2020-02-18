@@ -18,6 +18,7 @@ import (
 	"github.com/mattermost/mattermost-server/v5/config"
 	"github.com/mattermost/mattermost-server/v5/mlog"
 	"github.com/mattermost/mattermost-server/v5/model"
+	"github.com/mattermost/mattermost-server/v5/services/searchengine"
 	"github.com/mattermost/mattermost-server/v5/store"
 	"github.com/mattermost/mattermost-server/v5/utils"
 	"github.com/mattermost/mattermost-server/v5/web"
@@ -61,6 +62,12 @@ func UseTestStore(store store.Store) {
 	testStore = store
 }
 
+var searchEngine *searchengine.Broker
+
+func UseTestSearchEngine(engine *searchengine.Broker) {
+	searchEngine = engine
+}
+
 func setupTestHelper(enterprise bool, updateConfig func(*model.Config)) *TestHelper {
 	testStore.DropAllTables()
 
@@ -96,6 +103,8 @@ func setupTestHelper(enterprise bool, updateConfig func(*model.Config)) *TestHel
 		Server:      s,
 		ConfigStore: memoryStore,
 	}
+
+	th.App.SetSearchEngine(searchEngine)
 
 	th.App.UpdateConfig(func(cfg *model.Config) {
 		*cfg.TeamSettings.MaxUsersPerTeam = 50
