@@ -61,12 +61,7 @@ func (a *App) NewWebHub() *Hub {
 }
 
 func (a *App) TotalWebsocketConnections() int {
-	count := int64(0)
-	for _, hub := range a.Srv().GetHubs() {
-		count = count + atomic.LoadInt64(&hub.connectionCount)
-	}
-
-	return int(count)
+	return a.Srv().TotalWebsocketConnections()
 }
 
 func (a *App) HubStart() {
@@ -101,7 +96,7 @@ func (a *App) HubStart() {
 				for _, hub := range a.Srv().GetHubs() {
 					if len(hub.broadcast) >= DEADLOCK_WARN {
 						mlog.Error(
-							"Hub processing might be deadlock with events in the buffer",
+							"Websocket hub queue is filled to 99% of its capacity",
 							mlog.Int("hub", hub.connectionIndex),
 							mlog.Int("goroutine", hub.goroutineId),
 							mlog.Int("events", len(hub.broadcast)),
@@ -161,6 +156,9 @@ func (a *App) GetHubForUserId(userId string) *Hub {
 func (a *App) HubRegister(webConn *WebConn) {
 	hub := a.GetHubForUserId(webConn.UserId)
 	if hub != nil {
+		if metrics := a.Metrics(); metrics != nil {
+			metrics.IncrementWebSocketBroadcastUsersRegistered(strconv.Itoa(hub.connectionIndex), 1)
+		}
 		hub.Register(webConn)
 	}
 }
@@ -168,6 +166,9 @@ func (a *App) HubRegister(webConn *WebConn) {
 func (a *App) HubUnregister(webConn *WebConn) {
 	hub := a.GetHubForUserId(webConn.UserId)
 	if hub != nil {
+		if metrics := a.Metrics(); metrics != nil {
+			metrics.DecrementWebSocketBroadcastUsersRegistered(strconv.Itoa(hub.connectionIndex), 1)
+		}
 		hub.Unregister(webConn)
 	}
 }
@@ -338,10 +339,6 @@ func (h *Hub) Register(webConn *WebConn) {
 	case h.register <- webConn:
 	case <-h.didStop:
 	}
-
-	if webConn.IsAuthenticated() {
-		webConn.SendHello()
-	}
 }
 
 func (h *Hub) Unregister(webConn *WebConn) {
@@ -409,6 +406,9 @@ func (h *Hub) Start() {
 			case webCon := <-h.register:
 				connections.Add(webCon)
 				atomic.StoreInt64(&h.connectionCount, int64(len(connections.All())))
+				if webCon.IsAuthenticated() {
+					webCon.Send <- webCon.createHelloMessage()
+				}
 			case webCon := <-h.unregister:
 				connections.Remove(webCon)
 				atomic.StoreInt64(&h.connectionCount, int64(len(connections.All())))
